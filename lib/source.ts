@@ -1,14 +1,4 @@
-// The natural-language prompt the AI received before producing the markdown.
-// Played as a typewriter animation in Stage 0 of the walkthrough.
-export const AI_PROMPT = `Build me a Hotels at Manchester Airport listing page for Holiday Extras.
-
-Two hotels:
-- Crowne Plaza T1 — 4-star, £129, "Walk to T1 in 5 minutes" highlight, badges for Free Cancellation and Never Beaten on Price, with 4 packages.
-- Hilton Garden Inn — 4-star, £108.50, 10 minutes by shuttle, Tried Tested Recommended badge, no live packages so the CTA is "Choose".
-
-Use the rendering engine dialect.`;
-
-// The hotels.md source — Stage 1 of the pipeline.
+// The hotels.md source — Stage 0 of the pipeline.
 // Uses remark-directive syntax:
 //   ::name{attrs}              — leaf directive (no body)
 //   :::name{attrs} … :::       — container directive (with body)

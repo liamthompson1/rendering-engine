@@ -1,14 +1,14 @@
 "use client";
 // Stepping walkthrough — holds current stage, animates between stages.
-// Stage kinds: "prompt" (animated AI typing), "code" (highlighted panels),
-// "preview" (rendered HTML + code panels).
+// Each stage shows: title → visual diagram → code panels → live preview
+// (when applicable) → glass explanation card on the right.
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Glass } from "./Glass";
 import { Stepper } from "./Stepper";
 import { CodePanel } from "./CodePanel";
 import { Preview } from "./Preview";
-import { PromptStage } from "./PromptStage";
+import { StageVisual, type StageVisual as StageVisualKind } from "./StageVisual";
 
 export type StageView = {
   number: number;
@@ -17,19 +17,12 @@ export type StageView = {
   blurb: string;
   detail: string[];
   highlight?: string;
-  kind: "prompt" | "code" | "preview";
-  promptText?: string;
-  panels?: Array<{ label?: string; highlightedHtml: string; language: string }>;
+  visual: StageVisualKind;
+  panels: Array<{ label?: string; highlightedHtml: string; language: string }>;
   preview?: { html: string; mode: "fragment" | "full" };
 };
 
-export function Walkthrough({
-  stages,
-  promptReply,
-}: {
-  stages: StageView[];
-  promptReply: string;
-}) {
+export function Walkthrough({ stages }: { stages: StageView[] }) {
   const [i, setI] = useState(0);
   const stage = stages[i];
   const total = stages.length;
@@ -89,7 +82,7 @@ export function Walkthrough({
 
       <main className="flex-1 flex flex-col items-center px-4 pt-8 pb-24">
         <div className="w-full max-w-6xl">
-          {/* Title block */}
+          {/* Title */}
           <AnimatePresence mode="wait">
             <motion.div
               key={`title-${stage.number}`}
@@ -119,7 +112,21 @@ export function Walkthrough({
             </motion.div>
           </AnimatePresence>
 
-          {/* Preview at full width on Stage 7 / 8 — rendered output is the star */}
+          {/* Visual representation of the transformation — full width */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`visual-${stage.number}`}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+              className="mb-6"
+            >
+              <StageVisual visual={stage.visual} />
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Live HTML preview at full width on Stage 6 / 7 */}
           {stage.preview && (
             <AnimatePresence mode="wait">
               <motion.div
@@ -135,7 +142,7 @@ export function Walkthrough({
             </AnimatePresence>
           )}
 
-          {/* Body grid */}
+          {/* Body grid: code on left, explanation + nav on right */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
             <AnimatePresence mode="wait">
               <motion.div
@@ -146,22 +153,17 @@ export function Walkthrough({
                 transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                 className="flex flex-col gap-4 min-w-0"
               >
-                {stage.kind === "prompt" && stage.promptText ? (
-                  <PromptStage prompt={stage.promptText} reply={promptReply} />
-                ) : (
-                  stage.panels?.map((p, pi) => (
-                    <CodePanel
-                      key={pi}
-                      highlightedHtml={p.highlightedHtml}
-                      language={p.language}
-                      label={p.label}
-                    />
-                  ))
-                )}
+                {stage.panels.map((p, pi) => (
+                  <CodePanel
+                    key={pi}
+                    highlightedHtml={p.highlightedHtml}
+                    language={p.language}
+                    label={p.label}
+                  />
+                ))}
               </motion.div>
             </AnimatePresence>
 
-            {/* Right column — explanation + nav */}
             <div className="lg:sticky lg:top-28 lg:self-start space-y-4">
               <AnimatePresence mode="wait">
                 <motion.div

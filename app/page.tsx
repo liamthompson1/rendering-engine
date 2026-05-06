@@ -19,17 +19,14 @@ export default async function Home() {
       blurb: s.blurb,
       detail: s.detail,
       highlight: s.highlight,
-      kind: s.kind,
-      promptText: s.promptText,
-      panels: s.panels
-        ? await Promise.all(
-            s.panels.map(async (p) => ({
-              label: p.label,
-              language: p.language,
-              highlightedHtml: await highlight(p.code, p.language),
-            })),
-          )
-        : undefined,
+      visual: s.visual,
+      panels: await Promise.all(
+        s.panels.map(async (p) => ({
+          label: p.label,
+          language: p.language,
+          highlightedHtml: await highlight(p.code, p.language),
+        })),
+      ),
       preview: s.preview,
     })),
   );
@@ -37,7 +34,7 @@ export default async function Home() {
   return (
     <>
       <Background />
-      <Walkthrough stages={views} promptReply={r.source} />
+      <Walkthrough stages={views} />
     </>
   );
 }

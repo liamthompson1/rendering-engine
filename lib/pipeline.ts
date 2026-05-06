@@ -1,13 +1,12 @@
-// The 9-stage pipeline.
-//   0. Prompt — emulated AI request (animated typing in the UI)
-//   1. Source — markdown the AI produced
-//   2. Data — JSON the frontmatter referenced
-//   3. Frontmatter — gray-matter splits meta from body
-//   4. Concrete — Handlebars expands {{ }}
-//   5. AST — remark + remark-directive parse to a tree
-//   6. Rules — block handlers + design tokens + component CSS
-//   7. HTML — block handlers walk the tree, design system styles the result
-//   8. Page — final served document
+// The 8-stage pipeline.
+//   0. Source — markdown as authored
+//   1. Data — JSON the frontmatter referenced
+//   2. Frontmatter — gray-matter splits meta from body
+//   3. Concrete — Handlebars expands {{ }}
+//   4. AST — remark + remark-directive parse to a tree
+//   5. Rules — block handlers + design tokens + component CSS
+//   6. HTML — block handlers walk the tree, design system styles the result
+//   7. Page — final served document
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
@@ -18,12 +17,11 @@ import remarkGfm from "remark-gfm";
 import remarkDirective from "remark-directive";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
-import { SOURCE_MD, DATA_JSON, AI_PROMPT } from "./source";
+import { SOURCE_MD, DATA_JSON } from "./source";
 import { blockHandlers } from "./blocks";
 import { PREVIEW_TOKENS, PREVIEW_COMPONENTS } from "./preview-styles";
 
 export type PipelineResult = {
-  prompt: string;
   source: string;
   data: unknown;
   meta: Record<string, unknown>;
@@ -91,7 +89,6 @@ ${html
   );
 
   return {
-    prompt: AI_PROMPT,
     source,
     data,
     meta: meta as Record<string, unknown>,
@@ -123,7 +120,23 @@ export function trimAst(node: unknown): unknown {
 
 // ── Stage definitions ──────────────────────────────────────────────────
 
-export type StageKind = "prompt" | "code" | "preview";
+export type FlowNode = {
+  label: string;
+  detail?: string;
+  tone?: "input" | "process" | "output" | "neutral";
+};
+
+export type StageVisual =
+  // Linear input → process → output diagram
+  | { kind: "flow"; nodes: FlowNode[] }
+  // Concentric layers (used on Source stage to show the 3 layers)
+  | { kind: "layers"; layers: Array<{ label: string; tone: string; sample?: string }> }
+  // Tree view (used on AST stage)
+  | { kind: "tree"; ast: unknown }
+  // Mapping table (used on Rules stage — directive → element + class)
+  | { kind: "mapping"; rows: Array<{ from: string; to: string }> }
+  // Substitution table (used on Concrete stage — show {{var}} → value pairs)
+  | { kind: "substitution"; rows: Array<{ token: string; value: string }> };
 
 export type Stage = {
   number: number;
@@ -132,12 +145,9 @@ export type Stage = {
   blurb: string;
   detail: string[];
   highlight?: string;
-  kind: StageKind;
-  /** For 'prompt' stage */
-  promptText?: string;
-  /** For 'code' / 'preview' stages */
-  panels?: Array<{ label?: string; code: string; language: string }>;
-  /** Stage that shows the live HTML preview alongside */
+  visual: StageVisual;
+  panels: Array<{ label?: string; code: string; language: string }>;
+  /** Stage shows the live HTML preview alongside */
   preview?: { html: string; mode: "fragment" | "full" };
 };
 
@@ -145,47 +155,56 @@ export function buildStages(r: PipelineResult): Stage[] {
   return [
     {
       number: 0,
-      title: "Prompt",
-      subtitle: "Anyone — including an AI — can write this",
-      kind: "prompt",
-      promptText: r.prompt,
-      blurb:
-        "The format is the contract. Any LLM can produce this dialect from natural language. No special API, no schema gymnastics — it's text. The constrained surface area is what makes the output reliable.",
-      detail: [
-        "Watch the assistant produce the markdown source from a plain-English request. Everything that follows in this walkthrough is downstream of this — same source, same pipeline, same UI, every time.",
-      ],
-      highlight: "AI-first by design",
-    },
-    {
-      number: 1,
       title: "Source",
-      subtitle: "The markdown the AI produced",
-      kind: "code",
+      subtitle: "Markdown as authored — three layers stacked in one file",
+      visual: {
+        kind: "layers",
+        layers: [
+          { label: "Frontmatter", tone: "amber", sample: "title: …\\ndata: …" },
+          { label: "Handlebars", tone: "rose", sample: "{{#each products}}\\n{{name}}" },
+          { label: "Directives", tone: "violet", sample: "::::group{role=card}\\n::price{value=…}" },
+          { label: "Markdown", tone: "emerald", sample: "# Heading\\n- bullet" },
+        ],
+      },
       blurb:
-        "Three layers stacked: YAML frontmatter, Handlebars templating, directive blocks for semantic shapes plain markdown can't carry.",
+        "Three layers stacked: YAML frontmatter (config), Handlebars (templating), directives (semantic blocks). Plain markdown still works for everything else — # headings, bullets, paragraphs.",
       detail: [
-        "Plain markdown still works: # ## - * [link](href). Directives only appear where standard markdown can't carry the meaning.",
-        "Outer container directives use ::::group (4 colons) so they survive nesting around inner :::status / :::list / :::action containers (3 colons).",
+        "Outer containers use ::::group (4 colons) so they survive nesting around inner :::status / :::list / :::action containers (3 colons).",
+        "An LLM produces this format the same way it produces any markdown — no special API, no schema. The format itself is the contract.",
       ],
       panels: [{ code: r.source, language: "markdown" }],
     },
     {
-      number: 2,
+      number: 1,
       title: "Data",
       subtitle: "JSON the frontmatter referenced",
-      kind: "code",
+      visual: {
+        kind: "flow",
+        nodes: [
+          { label: "data/hotels.json", tone: "input", detail: "via frontmatter `data:`" },
+          { label: "JSON.parse", tone: "process" },
+          { label: "data object", tone: "output", detail: "passed to Handlebars" },
+        ],
+      },
       blurb:
-        "Two products, deliberately different — Crowne Plaza has both a highlight and a packageCount; Hilton has neither. Both {{#if}} branches will fire.",
+        "Two products, deliberately different — Crowne Plaza has both a highlight and a packageCount; Hilton has neither. Both {{#if}} branches will fire when Handlebars runs in Stage 3.",
       detail: [
         "The data: field could equally be a URL — the renderer just needs JSON at this point. The original prototype's /hotels route uses a live Holiday Extras API call.",
       ],
       panels: [{ code: JSON.stringify(r.data, null, 2), language: "json" }],
     },
     {
-      number: 3,
+      number: 2,
       title: "Frontmatter",
-      subtitle: "After gray-matter splits meta from body",
-      kind: "code",
+      subtitle: "gray-matter splits meta from body",
+      visual: {
+        kind: "flow",
+        nodes: [
+          { label: "Source .md", tone: "input" },
+          { label: "split at ---", tone: "process", detail: "gray-matter" },
+          { label: "{ meta, body }", tone: "output" },
+        ],
+      },
       blurb:
         "The first transformation. The --- fences are recognised; frontmatter becomes a typed object, the body is everything below. Nothing else has been parsed.",
       detail: [
@@ -197,42 +216,58 @@ export function buildStages(r: PipelineResult): Stage[] {
       ],
     },
     {
-      number: 4,
+      number: 3,
       title: "Concrete",
-      subtitle: "After Handlebars expands every {{ }}",
-      kind: "code",
+      subtitle: "Handlebars expands every {{ }}",
+      visual: {
+        kind: "substitution",
+        rows: substitutionRows(r),
+      },
       blurb:
         "Templating ran. {{#each products}} produced two card blocks. Hilton's :::status block is gone — {{#if highlight}} was false. Crowne's CTA reads 'Show Packages (4)'; Hilton's reads 'Choose'.",
       detail: [
-        "This is still valid markdown text — you could commit this output and skip Handlebars at request time if your content is fully static. But it's also the last point at which the document is just a string.",
+        "This is still valid markdown text — you could commit this output and skip Handlebars at request time if content is fully static. But it's also the last point at which the document is just a string.",
       ],
       highlight: "Templating done. Still text.",
       panels: [{ code: r.concrete, language: "markdown" }],
     },
     {
-      number: 5,
+      number: 4,
       title: "AST",
-      subtitle: "After remark + remark-directive parse",
-      kind: "code",
+      subtitle: "remark + remark-directive parse to a tree",
+      visual: {
+        kind: "tree",
+        ast: trimAst(r.ast),
+      },
       blurb:
         "Strings became a tree. Standard markdown nodes (heading, paragraph, list) sit alongside containerDirective and leafDirective nodes. Each directive carries name and attributes.",
       detail: [
         "This is the structured schema the proposal describes — the layer between markdown (input) and rendered UI (output). Iterate it differently and you get JSON for iOS, table-based HTML for email, paged HTML for print.",
-        "Position info (line/column) has been stripped here for readability — in real ASTs each node carries source location, which is what makes validation errors line-precise.",
+        "Position info (line/column) has been stripped from the tree visual for readability — in real ASTs each node carries source location, which is what makes validation errors line-precise.",
       ],
       highlight: "The boundary. Text → structure.",
       panels: [{ code: JSON.stringify(trimAst(r.ast), null, 2), language: "json" }],
     },
     {
-      number: 6,
+      number: 5,
       title: "Rules",
-      subtitle: "Block handlers + design tokens + component CSS",
-      kind: "code",
+      subtitle: "Handlers + design tokens + component CSS",
+      visual: {
+        kind: "mapping",
+        rows: [
+          { from: "::::group{role=card}", to: '<article class="group group--card">' },
+          { from: "::image{src= alt=}", to: '<img src= alt= loading="lazy">' },
+          { from: ":::status{tone=positive}", to: '<div class="status status--positive">' },
+          { from: "::price{value= currency=GBP}", to: '<div class="price"><span>£…</span></div>' },
+          { from: ":::list{layout=inline}", to: '<div class="list list--inline">' },
+          { from: ":::action{href= variant=primary}", to: '<a class="action action--primary" href=>' },
+        ],
+      },
       blurb:
-        "The visible rule set. Three artifacts together turn the AST into rendered UI: handlers (which directive becomes which element + class), tokens (the colour / type / spacing primitives), and component CSS (how each class consumes those tokens). Every card on every page flows through these.",
+        "The visible rule set. Three artifacts together turn the AST into rendered UI: handlers (which directive becomes which element + class), tokens (colour / type / spacing primitives), and component CSS (how each class consumes those tokens). Every card on every page flows through these.",
       detail: [
-        "There is no 'LoungeCard' or 'HotelCard' component anywhere. There is one .group--card style. Both rendered cards in the preview consume it identically — same border-radius, same shadow, same hover behaviour. Consistency comes from this layer being the only place visual decisions are made.",
-        "Replace the handlers with a JSON-emitter and you get an iOS manifest. Replace them with a table-emitter and you get email HTML. The tokens stay; the components specialise.",
+        "There is no 'LoungeCard' or 'HotelCard' component anywhere. There is one .group--card style. Both rendered cards in the preview consume it identically. Consistency comes from this layer being the only place visual decisions are made.",
+        "Replace the handlers with a JSON emitter and Stage 6 becomes an iOS manifest. Replace them with a table emitter and it becomes email HTML. Tokens stay; components specialise.",
       ],
       highlight: "Where every pixel comes from",
       panels: [
@@ -242,30 +277,61 @@ export function buildStages(r: PipelineResult): Stage[] {
       ],
     },
     {
-      number: 7,
+      number: 6,
       title: "HTML",
       subtitle: "What the rules produce",
-      kind: "preview",
+      visual: {
+        kind: "flow",
+        nodes: [
+          { label: "AST", tone: "input" },
+          { label: "block handlers", tone: "process", detail: "walk + transform" },
+          { label: "rehype-stringify", tone: "process" },
+          { label: "HTML body", tone: "output" },
+        ],
+      },
       blurb:
-        "Each directive node was transformed by its handler. group{role=card} → <article class=\"group group--card\">. price got currency-symbol formatting. action with an href emitted <a> rather than <button>. The classes you see here are exactly the classes the design system styles.",
+        "Each directive node was transformed by its handler. group{role=card} → <article class=\"group group--card\">. price got currency-symbol formatting. action with an href emitted <a> rather than <button>. The classes here are exactly the classes the design system styles.",
       detail: [
-        "Both cards consume the same .group--card style. The :::status pill on Crowne is .status--positive — same class that any other 'positive' message anywhere would use. Different content, identical rules.",
+        "Both cards consume the same .group--card style. The :::status pill on Crowne is .status--positive — same class any other 'positive' message anywhere would use. Different content, identical rules.",
       ],
       panels: [{ code: r.html, language: "html" }],
       preview: { html: r.html, mode: "fragment" },
     },
     {
-      number: 8,
+      number: 7,
       title: "Page",
       subtitle: "Shell wraps the body — final served HTML",
-      kind: "preview",
+      visual: {
+        kind: "flow",
+        nodes: [
+          { label: "HTML body", tone: "input" },
+          { label: "shell.ejs", tone: "process", detail: "head + chrome" },
+          { label: "served document", tone: "output" },
+        ],
+      },
       blurb:
-        "The shell template is the only template left in the new architecture. It wraps Stage 7 in <html>, head metadata, and the site header. Per-page templates are gone.",
+        "The shell template is the only template left in the new architecture. It wraps Stage 6 in <html>, head metadata, and the site header. Per-page templates are gone.",
       detail: [
         "Adding a new page in production becomes writing one markdown file. No new template, no new route handler, no new code.",
       ],
       panels: [{ code: r.fullHtml, language: "html" }],
       preview: { html: r.html, mode: "full" },
     },
+  ];
+}
+
+// Pull a few illustrative substitutions out of the data → markdown step.
+// We don't try to exhaustively diff — just show the user a handful of
+// representative {{token}} → value rows so they see what's happening.
+function substitutionRows(r: PipelineResult): Array<{ token: string; value: string }> {
+  const products = (r.data as { products?: Array<Record<string, unknown>> }).products ?? [];
+  const first = products[0] ?? {};
+  return [
+    { token: "{{#each products}}", value: `→ iterates ${products.length} times` },
+    { token: "{{name}}", value: String(first.name ?? "") },
+    { token: "{{price}}", value: `"${String(first.price ?? "")}"` },
+    { token: "{{location}}", value: String(first.location ?? "") },
+    { token: "{{#if highlight}}", value: first.highlight ? "true → block kept" : "false → block elided" },
+    { token: "{{#if packageCount}}", value: first.packageCount ? "true → 'Show Packages'" : "false → 'Choose'" },
   ];
 }
