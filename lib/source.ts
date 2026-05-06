@@ -1,5 +1,7 @@
 // The hotels.md source — Stage 0 of the pipeline.
-// This is exactly what an author (or LLM) would write.
+// Uses remark-directive syntax:
+//   ::name{attrs}              — leaf directive (no body)
+//   :::name{attrs} … :::       — container directive (with body)
 export const SOURCE_MD = `---
 title: Hotels at Manchester Airport
 data: data/hotels.json
@@ -8,18 +10,20 @@ data: data/hotels.json
 # Hotels at Manchester Airport
 
 {{#each products}}
-:::group{role=card id="{{id}}"}
-:::image{src="{{logoUrl}}" alt="{{name}}"}:::
+::::group{role=card id="{{id}}"}
+::image{src="{{logoUrl}}" alt="{{name}}"}
 
 ## {{name}}
 
 {{#if highlight}}
-:::status{tone=positive}{{highlight}}:::
+:::status{tone=positive}
+{{highlight}}
+:::
 {{/if}}
 
 {{location}} · ★ {{stars}} · {{rating}}/10
 
-:::price{value="{{price}}" currency=GBP label="Hotel packages from"}:::
+::price{value="{{price}}" currency=GBP label="Hotel packages from"}
 
 :::list{layout=inline}
 {{#each badges}}- {{this}}
@@ -29,23 +33,29 @@ data: data/hotels.json
 {{description}}
 
 {{#if packageCount}}
-:::action{href="{{links.packages}}" variant=primary}Show Packages ({{packageCount}}):::
-{{else}}
-:::action{href="{{links.choose}}" variant=primary}Choose:::
-{{/if}}
+:::action{href="{{links.packages}}" variant=primary}
+Show Packages ({{packageCount}})
 :::
+{{else}}
+:::action{href="{{links.choose}}" variant=primary}
+Choose
+:::
+{{/if}}
+::::
 {{/each}}
 `;
 
 // data/hotels.json — Stage 1 (faked).
-// Two products, deliberately exercising both branches of every conditional.
+// Two products, deliberately different so both {{#if}} branches fire.
+// logoUrl uses picsum.photos with a stable seed per hotel so each card
+// gets a consistent, real image without bundling assets.
 export const DATA_JSON = {
   products: [
     {
       id: "crowne-plaza-t1",
       name: "Crowne Plaza Manchester Airport T1",
       stars: 4,
-      logoUrl: "/images/crowne-plaza-t1.jpg",
+      logoUrl: "https://picsum.photos/seed/crowne-plaza-t1/1200/600",
       highlight: "Walk to T1 in 5 minutes",
       location: "Adjacent to Terminal 1",
       price: "129.00",
@@ -65,7 +75,7 @@ export const DATA_JSON = {
       id: "hilton-garden",
       name: "Hilton Garden Inn",
       stars: 4,
-      logoUrl: "/images/hilton-garden.jpg",
+      logoUrl: "https://picsum.photos/seed/hilton-garden-inn/1200/600",
       location: "10 min by hotel shuttle",
       price: "108.50",
       rating: 8.2,

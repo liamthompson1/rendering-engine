@@ -115,6 +115,23 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
             </motion.div>
           </AnimatePresence>
 
+          {/* Preview gets full width on Stage 5 / 6 so the rendered output
+              has room to breathe — that's the money shot. */}
+          {stage.preview && (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`preview-${stage.number}`}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+                className="mb-6"
+              >
+                <Preview html={stage.preview.html} mode={stage.preview.mode} />
+              </motion.div>
+            </AnimatePresence>
+          )}
+
           {/* Body — code panel(s) on the left, glass explanation card on the right */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
             <AnimatePresence mode="wait">
@@ -126,12 +143,6 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
                 transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                 className="flex flex-col gap-4 min-w-0"
               >
-                {stage.preview && stage.preview.mode === "fragment" && (
-                  <Preview html={stage.preview.html} mode={stage.preview.mode} />
-                )}
-                {stage.preview && stage.preview.mode === "full" && (
-                  <Preview html={stage.preview.html} mode={stage.preview.mode} />
-                )}
                 {stage.panels.map((p, pi) => (
                   <CodePanel
                     key={pi}

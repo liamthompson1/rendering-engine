@@ -26,6 +26,18 @@ type DirectiveNode = {
 
 const CURRENCY_SYMBOL: Record<string, string> = { GBP: "£", USD: "$", EUR: "€" };
 
+// When a container directive's body is a single paragraph (e.g. a button
+// label or a status message), unwrap it so we don't emit <a><p>...</p></a>.
+function unwrapTextBody(d: DirectiveNode) {
+  if (
+    d.children &&
+    d.children.length === 1 &&
+    (d.children[0] as { type?: string; children?: unknown[] }).type === "paragraph"
+  ) {
+    d.children = (d.children[0] as { children: unknown[] }).children;
+  }
+}
+
 function blockHandlers() {
   return (tree: Root) => {
     visit(tree, (node) => {
@@ -65,6 +77,7 @@ function blockHandlers() {
         }
         case "status": {
           const tone = attrs.tone ?? "info";
+          unwrapTextBody(d);
           d.data = {
             hName: "div",
             hProperties: { className: ["status", `status--${tone}`] },
@@ -114,6 +127,7 @@ function blockHandlers() {
         case "action": {
           const variant = attrs.variant ?? "secondary";
           const isLink = attrs.href && !attrs.onclick && !attrs.submit;
+          unwrapTextBody(d);
           d.data = {
             hName: isLink ? "a" : "button",
             hProperties: {

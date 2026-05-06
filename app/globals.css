@@ -74,77 +74,103 @@ li code {
   font-size: 0.75rem;
 }
 
+/* The preview itself becomes a responsive grid:
+   title spans all columns, cards auto-fit at >=720px wide. */
+.preview-content {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media (min-width: 720px) {
+  .preview-content {
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    column-gap: 1.25rem;
+    row-gap: 1.5rem;
+  }
+  .preview-content > h1 {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Page-level h1 — the markdown # */
 .preview-content > h1 {
   font-size: 1.875rem;
   font-weight: 700;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.03em;
   color: #09090b;
-  margin: 0 0 1.5rem;
-  line-height: 1.1;
+  margin: 0;
+  line-height: 1.05;
 }
 @media (min-width: 768px) {
   .preview-content > h1 {
-    font-size: 2.25rem;
+    font-size: 2.5rem;
   }
 }
 
 /* ── Cards (group--card) ─────────────────────────────────────────── */
 .preview-content .group--card {
-  display: block;
+  display: flex;
+  flex-direction: column;
   position: relative;
-  background: linear-gradient(180deg, #ffffff 0%, #fcfcfd 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #fafafb 100%);
   border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 16px;
+  border-radius: 18px;
   padding: 0;
-  margin: 0 0 1.25rem;
+  margin: 0;
   overflow: hidden;
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.04),
-    0 8px 24px -12px rgba(0, 0, 0, 0.08);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+    0 12px 32px -16px rgba(0, 0, 0, 0.08);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .preview-content .group--card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.04),
-    0 16px 40px -16px rgba(0, 0, 0, 0.12);
+    0 24px 56px -20px rgba(91, 42, 134, 0.18);
 }
 
 /* Card image — fills top, gradient fallback when src missing */
 .preview-content .group--card > img {
   display: block;
   width: 100%;
-  height: 180px;
+  height: 220px;
   object-fit: cover;
   background:
     linear-gradient(135deg, #ddd6fe 0%, #fbcfe8 50%, #99f6e4 100%);
 }
 
-/* Card body wrapper — everything after the img gets padding via the children */
+/* Card body wrapper — everything after the img gets horizontal padding */
 .preview-content .group--card > h2,
 .preview-content .group--card > .status,
 .preview-content .group--card > .price,
 .preview-content .group--card > p,
 .preview-content .group--card > .list,
 .preview-content .group--card > .action {
-  margin-left: 1.25rem;
-  margin-right: 1.25rem;
+  margin-left: 1.5rem;
+  margin-right: 1.5rem;
 }
 .preview-content .group--card > h2 {
-  margin-top: 1rem;
+  margin-top: 1.125rem;
   margin-bottom: 0.5rem;
 }
+.preview-content .group--card > .status {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+}
 .preview-content .group--card > .action {
-  margin-bottom: 1.25rem;
+  margin-top: auto;
+  margin-bottom: 1.5rem;
+  align-self: flex-start;
 }
 
 .preview-content .group--card h2 {
-  font-size: 1.125rem;
+  font-size: 1.25rem;
   font-weight: 700;
-  letter-spacing: -0.015em;
-  color: #18181b;
-  line-height: 1.3;
+  letter-spacing: -0.02em;
+  color: #09090b;
+  line-height: 1.25;
 }
 
 /* ── Status pill ─────────────────────────────────────────────────── */
