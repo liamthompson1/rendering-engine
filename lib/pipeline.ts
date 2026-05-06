@@ -1,5 +1,5 @@
-// The 6-stage pipeline, run live.
-// Each stage transforms the previous and returns its output for inspection.
+// The 7-stage pipeline. Each stage transforms the previous and exposes its
+// real output. The whole thing runs server-side at build/request time.
 import matter from "gray-matter";
 import Handlebars from "handlebars";
 import { unified } from "unified";
@@ -13,8 +13,8 @@ import type { Root } from "mdast";
 import { SOURCE_MD, DATA_JSON } from "./source";
 
 // ── Block handlers ─────────────────────────────────────────────────────
-// One small handler per primitive. These are the ENTIRE rendering rules
-// for the directive layer — everything else is plain markdown.
+// One handler per primitive. These are the entire rendering rule set for
+// the directive layer; everything else is plain markdown.
 
 type DirectiveNode = {
   type: "containerDirective" | "leafDirective" | "textDirective";
@@ -73,7 +73,6 @@ function blockHandlers() {
         }
         case "price": {
           const sym = CURRENCY_SYMBOL[attrs.currency ?? "GBP"] ?? "";
-          // Replace children with a structured set of spans.
           d.children = [
             ...(attrs.label
               ? [
@@ -125,8 +124,6 @@ function blockHandlers() {
           return;
         }
         default: {
-          // Unknown directive — render as a div with a marker class so
-          // validation can flag it without breaking the page.
           d.data = {
             hName: "div",
             hProperties: { className: ["unknown-directive", `unknown--${d.name}`] },
@@ -151,25 +148,21 @@ export type PipelineResult = {
 };
 
 export async function runPipeline(): Promise<PipelineResult> {
-  // Stage 0 — source as authored
   const source = SOURCE_MD;
-
-  // Stage 1 — data file (in this demo, an in-memory object)
   const data = DATA_JSON;
 
-  // Stage 2 — gray-matter splits frontmatter from body
   const parsed = matter(source);
   const meta = parsed.data;
   const body = parsed.content;
 
-  // Stage 3 — Handlebars expands {{...}} against the data
   const concrete = Handlebars.compile(body, { noEscape: true })(data);
 
-  // Stage 4 — markdown + directives → AST
-  const processor = unified().use(remarkParse).use(remarkGfm).use(remarkDirective);
-  const ast = processor.parse(concrete);
+  const ast = unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkDirective)
+    .parse(concrete);
 
-  // Stage 5 — block handlers + rehype-stringify → HTML body
   const html = String(
     await unified()
       .use(remarkParse)
@@ -181,7 +174,6 @@ export async function runPipeline(): Promise<PipelineResult> {
       .process(concrete),
   );
 
-  // Stage 6 — wrapped in shell HTML
   const fullHtml = `<!doctype html>
 <html lang="en">
 <head>
@@ -215,7 +207,7 @@ ${html
   };
 }
 
-// Strip the AST down to the interesting bits for display (drop position info).
+// Strip position info from AST for cleaner display.
 export function trimAst(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(trimAst);
   if (node && typeof node === "object") {
@@ -227,4 +219,120 @@ export function trimAst(node: unknown): unknown {
     return out;
   }
   return node;
+}
+
+// ── Stage metadata for the UI ──────────────────────────────────────────
+
+export type Stage = {
+  number: number;
+  title: string;
+  subtitle: string;
+  blurb: string;
+  detail: string[];
+  highlight?: string;
+  /** Pre-highlighted code panels for this stage */
+  panels: Array<{
+    label?: string;
+    code: string;
+    language: string;
+  }>;
+  /** Stage 5 / 6: render the live HTML preview alongside */
+  preview?: { html: string; mode: "fragment" | "full" };
+};
+
+export function buildStages(r: PipelineResult): Stage[] {
+  return [
+    {
+      number: 0,
+      title: "Source",
+      subtitle: "The markdown file as authored",
+      blurb:
+        "Three layers stacked: YAML frontmatter, Handlebars templating, directive blocks for semantic shapes plain markdown can't carry.",
+      detail: [
+        "An LLM produces this format the same way it produces any markdown — no special API, no JSX, no schema gymnastics. The format itself is the contract.",
+        "Plain markdown still works: # ## - * [link](href). Directives only appear where standard markdown can't carry the meaning.",
+      ],
+      panels: [{ code: r.stage0_source, language: "markdown" }],
+    },
+    {
+      number: 1,
+      title: "Data",
+      subtitle: "JSON the frontmatter referenced",
+      blurb:
+        "Two products, deliberately different — Crowne Plaza has both a highlight and a packageCount; Hilton has neither. Both {{#if}} branches will fire.",
+      detail: [
+        "The data: field in frontmatter could equally be a URL — the renderer just needs JSON at this point in the pipeline. The original prototype's /hotels route uses a live API call.",
+      ],
+      panels: [
+        { code: JSON.stringify(r.stage1_data, null, 2), language: "json" },
+      ],
+    },
+    {
+      number: 2,
+      title: "Frontmatter",
+      subtitle: "After gray-matter splits meta from body",
+      blurb:
+        "The first transformation. The --- fences are recognised; frontmatter becomes a typed object, the body is everything below. Nothing else has been parsed.",
+      detail: [
+        "Frontmatter resolution is what tells the pipeline which template, which data, and which title to use. Everything else is still raw text.",
+      ],
+      panels: [
+        { label: "meta", code: JSON.stringify(r.stage2_meta, null, 2), language: "json" },
+        { label: "body (raw)", code: r.stage2_body, language: "markdown" },
+      ],
+    },
+    {
+      number: 3,
+      title: "Concrete",
+      subtitle: "After Handlebars expands every {{ }}",
+      blurb:
+        "Templating ran. {{#each products}} produced two card blocks. Hilton's :::status block is gone — {{#if highlight}} was false. Crowne's CTA reads 'Show Packages (4)'; Hilton's reads 'Choose'.",
+      detail: [
+        "Notably this is still valid markdown text — you could commit this output and skip Handlebars at request time if your content is fully static. But it's also the last point at which the document is just a string.",
+      ],
+      highlight: "Templating done. Still text — no structure yet.",
+      panels: [{ code: r.stage3_concrete, language: "markdown" }],
+    },
+    {
+      number: 4,
+      title: "AST",
+      subtitle: "After remark + remark-directive parse",
+      blurb:
+        "Strings became a tree. Standard markdown nodes (heading, paragraph, list) sit alongside containerDirective and leafDirective nodes. Each directive carries name and attributes.",
+      detail: [
+        "This is the structured schema the proposal describes — the layer between markdown (input) and rendered UI (output). Iterate it differently and you get JSON for iOS, table-based HTML for email, paged HTML for print.",
+        "Position info (line/column) has been stripped here for readability — in real ASTs each node carries source location, which is what makes validation errors line-precise.",
+      ],
+      highlight: "The boundary. Text became structure.",
+      panels: [
+        { code: JSON.stringify(trimAst(r.stage4_ast), null, 2), language: "json" },
+      ],
+    },
+    {
+      number: 5,
+      title: "HTML",
+      subtitle: "After block handlers walk the tree",
+      blurb:
+        "Each directive node was transformed by its handler. group{role=card} → <article class=\"group group--card\">. price got currency-symbol formatting. action with an href emitted <a> rather than <button>.",
+      detail: [
+        "The handlers are the entire rendering rule set for the directive layer. Roughly ten small functions, five lines each. New primitive = new handler. New pattern = no new code.",
+        "Swap these handlers with iOS or email versions and the same Stage 4 tree drives every target.",
+      ],
+      highlight: "The only target-specific step.",
+      panels: [{ code: r.stage5_html, language: "html" }],
+      preview: { html: r.stage5_html, mode: "fragment" },
+    },
+    {
+      number: 6,
+      title: "Page",
+      subtitle: "Shell wraps the body — final served HTML",
+      blurb:
+        "The shell template is the only template left in the new architecture. It wraps Stage 5 in <html>, head metadata, the site header. Per-page templates are gone.",
+      detail: [
+        "Adding a new page in production becomes writing one markdown file. No new template, no new route handler, no new code.",
+      ],
+      panels: [{ code: r.stage6_fullHtml, language: "html" }],
+      preview: { html: r.stage5_html, mode: "full" },
+    },
+  ];
 }

@@ -9,17 +9,17 @@ data: data/hotels.json
 
 {{#each products}}
 :::group{role=card id="{{id}}"}
-## {{name}}
-
 :::image{src="{{logoUrl}}" alt="{{name}}"}:::
+
+## {{name}}
 
 {{#if highlight}}
 :::status{tone=positive}{{highlight}}:::
 {{/if}}
 
-:::price{value="{{price}}" currency=GBP label="Hotel packages from"}:::
-
 {{location}} · ★ {{stars}} · {{rating}}/10
+
+:::price{value="{{price}}" currency=GBP label="Hotel packages from"}:::
 
 :::list{layout=inline}
 {{#each badges}}- {{this}}
