@@ -1,12 +1,11 @@
-// The 8-stage pipeline.
+// The 7-stage pipeline.
 //   0. Source — markdown as authored
-//   1. Data — JSON the frontmatter referenced
-//   2. Frontmatter — gray-matter splits meta from body
-//   3. Concrete — Handlebars expands {{ }}
-//   4. AST — remark + remark-directive parse to a tree
-//   5. Rules — block handlers + design tokens + component CSS
-//   6. HTML — block handlers walk the tree, design system styles the result
-//   7. Page — final served document
+//   1. Frontmatter — gray-matter splits meta from body
+//   2. Concrete — Handlebars expands {{ }} against the data file
+//   3. AST — remark + remark-directive parse to a tree
+//   4. Rules — block handlers + design tokens + component CSS
+//   5. HTML — block handlers walk the tree, design system styles the result
+//   6. Page — final served document
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
@@ -176,25 +175,6 @@ export function buildStages(r: PipelineResult): Stage[] {
     },
     {
       number: 1,
-      title: "Data",
-      subtitle: "JSON the frontmatter referenced",
-      visual: {
-        kind: "flow",
-        nodes: [
-          { label: "data/hotels.json", tone: "input", detail: "via frontmatter `data:`" },
-          { label: "JSON.parse", tone: "process" },
-          { label: "data object", tone: "output", detail: "passed to Handlebars" },
-        ],
-      },
-      blurb:
-        "Two products, deliberately different — Crowne Plaza has both a highlight and a packageCount; Hilton has neither. Both {{#if}} branches will fire when Handlebars runs in Stage 3.",
-      detail: [
-        "The data: field could equally be a URL — the renderer just needs JSON at this point. The original prototype's /hotels route uses a live Holiday Extras API call.",
-      ],
-      panels: [{ code: JSON.stringify(r.data, null, 2), language: "json" }],
-    },
-    {
-      number: 2,
       title: "Frontmatter",
       subtitle: "gray-matter splits meta from body",
       visual: {
@@ -206,9 +186,9 @@ export function buildStages(r: PipelineResult): Stage[] {
         ],
       },
       blurb:
-        "The first transformation. The --- fences are recognised; frontmatter becomes a typed object, the body is everything below. Nothing else has been parsed.",
+        "The first transformation. The --- fences are recognised; frontmatter becomes a typed object, the body is everything below. The meta tells the pipeline which data file to load and which template to use. Nothing else has been parsed.",
       detail: [
-        "Frontmatter resolution is what tells the pipeline which template, which data, and which title to use. Everything else is still raw text.",
+        "data: data/hotels.json points the renderer at a JSON file (or a URL — same shape either way). That data feeds Handlebars in the next stage.",
       ],
       panels: [
         { label: "meta", code: JSON.stringify(r.meta, null, 2), language: "json" },
@@ -216,9 +196,9 @@ export function buildStages(r: PipelineResult): Stage[] {
       ],
     },
     {
-      number: 3,
+      number: 2,
       title: "Concrete",
-      subtitle: "Handlebars expands every {{ }}",
+      subtitle: "Handlebars expands every {{ }} against the data",
       visual: {
         kind: "substitution",
         rows: substitutionRows(r),
@@ -226,13 +206,14 @@ export function buildStages(r: PipelineResult): Stage[] {
       blurb:
         "Templating ran. {{#each products}} produced two card blocks. Hilton's :::status block is gone — {{#if highlight}} was false. Crowne's CTA reads 'Show Packages (4)'; Hilton's reads 'Choose'.",
       detail: [
-        "This is still valid markdown text — you could commit this output and skip Handlebars at request time if content is fully static. But it's also the last point at which the document is just a string.",
+        "Values come from the JSON loaded via frontmatter (data/hotels.json — Crowne Plaza, Hilton Garden Inn, prices, badges). After this stage every {{token}} is gone.",
+        "This is still valid markdown text — you could commit this output and skip Handlebars at request time if content is fully static.",
       ],
       highlight: "Templating done. Still text.",
       panels: [{ code: r.concrete, language: "markdown" }],
     },
     {
-      number: 4,
+      number: 3,
       title: "AST",
       subtitle: "remark + remark-directive parse to a tree",
       visual: {
@@ -249,7 +230,7 @@ export function buildStages(r: PipelineResult): Stage[] {
       panels: [{ code: JSON.stringify(trimAst(r.ast), null, 2), language: "json" }],
     },
     {
-      number: 5,
+      number: 4,
       title: "Rules",
       subtitle: "Handlers + design tokens + component CSS",
       visual: {
@@ -267,7 +248,7 @@ export function buildStages(r: PipelineResult): Stage[] {
         "The visible rule set. Three artifacts together turn the AST into rendered UI: handlers (which directive becomes which element + class), tokens (colour / type / spacing primitives), and component CSS (how each class consumes those tokens). Every card on every page flows through these.",
       detail: [
         "There is no 'LoungeCard' or 'HotelCard' component anywhere. There is one .group--card style. Both rendered cards in the preview consume it identically. Consistency comes from this layer being the only place visual decisions are made.",
-        "Replace the handlers with a JSON emitter and Stage 6 becomes an iOS manifest. Replace them with a table emitter and it becomes email HTML. Tokens stay; components specialise.",
+        "Replace the handlers with a JSON emitter and Stage 5 becomes an iOS manifest. Replace them with a table emitter and it becomes email HTML. Tokens stay; components specialise.",
       ],
       highlight: "Where every pixel comes from",
       panels: [
@@ -277,7 +258,7 @@ export function buildStages(r: PipelineResult): Stage[] {
       ],
     },
     {
-      number: 6,
+      number: 5,
       title: "HTML",
       subtitle: "What the rules produce",
       visual: {
@@ -298,7 +279,7 @@ export function buildStages(r: PipelineResult): Stage[] {
       preview: { html: r.html, mode: "fragment" },
     },
     {
-      number: 7,
+      number: 6,
       title: "Page",
       subtitle: "Shell wraps the body — final served HTML",
       visual: {
@@ -310,7 +291,7 @@ export function buildStages(r: PipelineResult): Stage[] {
         ],
       },
       blurb:
-        "The shell template is the only template left in the new architecture. It wraps Stage 6 in <html>, head metadata, and the site header. Per-page templates are gone.",
+        "The shell template is the only template left in the new architecture. It wraps Stage 5 in <html>, head metadata, and the site header. Per-page templates are gone.",
       detail: [
         "Adding a new page in production becomes writing one markdown file. No new template, no new route handler, no new code.",
       ],
