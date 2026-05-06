@@ -8,7 +8,7 @@ function getHighlighter() {
   if (!cached) {
     cached = createHighlighter({
       themes: ["github-dark-dimmed"],
-      langs: ["markdown", "json", "html", "yaml", "javascript", "typescript", "bash"],
+      langs: ["markdown", "json", "html", "yaml", "javascript", "typescript", "tsx", "css", "bash"],
     });
   }
   return cached;

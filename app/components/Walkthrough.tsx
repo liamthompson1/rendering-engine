@@ -1,13 +1,14 @@
 "use client";
 // Stepping walkthrough — holds current stage, animates between stages.
-// All content (highlighted code panels, previews, copy) is pre-computed
-// on the server and passed in.
+// Stage kinds: "prompt" (animated AI typing), "code" (highlighted panels),
+// "preview" (rendered HTML + code panels).
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Glass } from "./Glass";
 import { Stepper } from "./Stepper";
 import { CodePanel } from "./CodePanel";
 import { Preview } from "./Preview";
+import { PromptStage } from "./PromptStage";
 
 export type StageView = {
   number: number;
@@ -16,11 +17,19 @@ export type StageView = {
   blurb: string;
   detail: string[];
   highlight?: string;
-  panels: Array<{ label?: string; highlightedHtml: string; language: string }>;
+  kind: "prompt" | "code" | "preview";
+  promptText?: string;
+  panels?: Array<{ label?: string; highlightedHtml: string; language: string }>;
   preview?: { html: string; mode: "fragment" | "full" };
 };
 
-export function Walkthrough({ stages }: { stages: StageView[] }) {
+export function Walkthrough({
+  stages,
+  promptReply,
+}: {
+  stages: StageView[];
+  promptReply: string;
+}) {
   const [i, setI] = useState(0);
   const stage = stages[i];
   const total = stages.length;
@@ -30,14 +39,10 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
     [total],
   );
 
-  // Keyboard arrows + page up/down
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (
-        e.target &&
-        (e.target as HTMLElement).tagName?.toLowerCase() === "input"
-      )
-        return;
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
       if (e.key === "ArrowRight" || e.key === "PageDown") {
         e.preventDefault();
         go(1);
@@ -57,7 +62,6 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header bar */}
       <header className="sticky top-0 z-30 flex justify-center pt-4 px-4">
         <Glass
           tone="default"
@@ -83,10 +87,9 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
         </Glass>
       </header>
 
-      {/* Stage area */}
       <main className="flex-1 flex flex-col items-center px-4 pt-8 pb-24">
         <div className="w-full max-w-6xl">
-          {/* Title */}
+          {/* Title block */}
           <AnimatePresence mode="wait">
             <motion.div
               key={`title-${stage.number}`}
@@ -98,7 +101,8 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
             >
               <div className="flex items-baseline gap-3 mb-1">
                 <span className="font-mono text-xs uppercase tracking-[0.2em] text-zinc-500">
-                  Stage {String(stage.number).padStart(2, "0")} / {String(total - 1).padStart(2, "0")}
+                  Stage {String(stage.number).padStart(2, "0")} /{" "}
+                  {String(total - 1).padStart(2, "0")}
                 </span>
                 {stage.highlight && (
                   <span className="text-xs font-medium text-violet-300/90 bg-violet-500/10 border border-violet-400/20 px-2 py-0.5 rounded-full">
@@ -115,8 +119,7 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
             </motion.div>
           </AnimatePresence>
 
-          {/* Preview gets full width on Stage 5 / 6 so the rendered output
-              has room to breathe — that's the money shot. */}
+          {/* Preview at full width on Stage 7 / 8 — rendered output is the star */}
           {stage.preview && (
             <AnimatePresence mode="wait">
               <motion.div
@@ -132,7 +135,7 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
             </AnimatePresence>
           )}
 
-          {/* Body — code panel(s) on the left, glass explanation card on the right */}
+          {/* Body grid */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
             <AnimatePresence mode="wait">
               <motion.div
@@ -143,17 +146,22 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
                 transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                 className="flex flex-col gap-4 min-w-0"
               >
-                {stage.panels.map((p, pi) => (
-                  <CodePanel
-                    key={pi}
-                    highlightedHtml={p.highlightedHtml}
-                    language={p.language}
-                    label={p.label}
-                  />
-                ))}
+                {stage.kind === "prompt" && stage.promptText ? (
+                  <PromptStage prompt={stage.promptText} reply={promptReply} />
+                ) : (
+                  stage.panels?.map((p, pi) => (
+                    <CodePanel
+                      key={pi}
+                      highlightedHtml={p.highlightedHtml}
+                      language={p.language}
+                      label={p.label}
+                    />
+                  ))
+                )}
               </motion.div>
             </AnimatePresence>
 
+            {/* Right column — explanation + nav */}
             <div className="lg:sticky lg:top-28 lg:self-start space-y-4">
               <AnimatePresence mode="wait">
                 <motion.div
@@ -186,7 +194,6 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
                 </motion.div>
               </AnimatePresence>
 
-              {/* Nav buttons */}
               <div className="flex gap-2">
                 <button
                   onClick={() => go(-1)}
@@ -209,7 +216,7 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
               </div>
 
               <p className="text-[10px] font-mono text-zinc-500 text-center">
-                ← → arrow keys · 0–6 jump
+                ← → arrow keys · 0–{total - 1} jump
               </p>
             </div>
           </div>

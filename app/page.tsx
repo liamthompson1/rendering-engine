@@ -1,4 +1,4 @@
-// Server entry. Runs the pipeline + Shiki highlighting once at build/request,
+// Server entry. Runs the pipeline + Shiki highlighting once at build time,
 // then hands off to the client Walkthrough.
 import { runPipeline, buildStages } from "@/lib/pipeline";
 import { highlight } from "@/lib/highlight";
@@ -19,13 +19,17 @@ export default async function Home() {
       blurb: s.blurb,
       detail: s.detail,
       highlight: s.highlight,
-      panels: await Promise.all(
-        s.panels.map(async (p) => ({
-          label: p.label,
-          language: p.language,
-          highlightedHtml: await highlight(p.code, p.language),
-        })),
-      ),
+      kind: s.kind,
+      promptText: s.promptText,
+      panels: s.panels
+        ? await Promise.all(
+            s.panels.map(async (p) => ({
+              label: p.label,
+              language: p.language,
+              highlightedHtml: await highlight(p.code, p.language),
+            })),
+          )
+        : undefined,
       preview: s.preview,
     })),
   );
@@ -33,7 +37,7 @@ export default async function Home() {
   return (
     <>
       <Background />
-      <Walkthrough stages={views} />
+      <Walkthrough stages={views} promptReply={r.source} />
     </>
   );
 }

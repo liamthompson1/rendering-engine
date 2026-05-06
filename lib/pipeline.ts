@@ -1,5 +1,15 @@
-// The 7-stage pipeline. Each stage transforms the previous and exposes its
-// real output. The whole thing runs server-side at build/request time.
+// The 9-stage pipeline.
+//   0. Prompt — emulated AI request (animated typing in the UI)
+//   1. Source — markdown the AI produced
+//   2. Data — JSON the frontmatter referenced
+//   3. Frontmatter — gray-matter splits meta from body
+//   4. Concrete — Handlebars expands {{ }}
+//   5. AST — remark + remark-directive parse to a tree
+//   6. Rules — block handlers + design tokens + component CSS
+//   7. HTML — block handlers walk the tree, design system styles the result
+//   8. Page — final served document
+import fs from "node:fs";
+import path from "node:path";
 import matter from "gray-matter";
 import Handlebars from "handlebars";
 import { unified } from "unified";
@@ -8,157 +18,21 @@ import remarkGfm from "remark-gfm";
 import remarkDirective from "remark-directive";
 import remarkRehype from "remark-rehype";
 import rehypeStringify from "rehype-stringify";
-import { visit } from "unist-util-visit";
-import type { Root } from "mdast";
-import { SOURCE_MD, DATA_JSON } from "./source";
-
-// ── Block handlers ─────────────────────────────────────────────────────
-// One handler per primitive. These are the entire rendering rule set for
-// the directive layer; everything else is plain markdown.
-
-type DirectiveNode = {
-  type: "containerDirective" | "leafDirective" | "textDirective";
-  name: string;
-  attributes?: Record<string, string>;
-  children: unknown[];
-  data?: Record<string, unknown>;
-};
-
-const CURRENCY_SYMBOL: Record<string, string> = { GBP: "£", USD: "$", EUR: "€" };
-
-// When a container directive's body is a single paragraph (e.g. a button
-// label or a status message), unwrap it so we don't emit <a><p>...</p></a>.
-function unwrapTextBody(d: DirectiveNode) {
-  if (
-    d.children &&
-    d.children.length === 1 &&
-    (d.children[0] as { type?: string; children?: unknown[] }).type === "paragraph"
-  ) {
-    d.children = (d.children[0] as { children: unknown[] }).children;
-  }
-}
-
-function blockHandlers() {
-  return (tree: Root) => {
-    visit(tree, (node) => {
-      if (
-        node.type !== "containerDirective" &&
-        node.type !== "leafDirective" &&
-        node.type !== "textDirective"
-      )
-        return;
-      const d = node as unknown as DirectiveNode;
-      const attrs = d.attributes ?? {};
-
-      switch (d.name) {
-        case "group": {
-          const role = attrs.role ?? "region";
-          const tag = role === "form" ? "form" : role === "panel" ? "aside" : "article";
-          d.data = {
-            hName: tag,
-            hProperties: {
-              className: ["group", `group--${role}`],
-              "data-role": role,
-              ...(attrs.id ? { "data-id": attrs.id } : {}),
-            },
-          };
-          return;
-        }
-        case "image": {
-          d.data = {
-            hName: "img",
-            hProperties: {
-              src: attrs.src,
-              alt: attrs.alt ?? "",
-              loading: "lazy",
-            },
-          };
-          return;
-        }
-        case "status": {
-          const tone = attrs.tone ?? "info";
-          unwrapTextBody(d);
-          d.data = {
-            hName: "div",
-            hProperties: { className: ["status", `status--${tone}`] },
-          };
-          return;
-        }
-        case "price": {
-          const sym = CURRENCY_SYMBOL[attrs.currency ?? "GBP"] ?? "";
-          d.children = [
-            ...(attrs.label
-              ? [
-                  {
-                    type: "text",
-                    value: "",
-                    data: {
-                      hName: "span",
-                      hProperties: { className: ["price-label"] },
-                      hChildren: [{ type: "text", value: attrs.label }],
-                    },
-                  },
-                ]
-              : []),
-            {
-              type: "text",
-              value: "",
-              data: {
-                hName: "span",
-                hProperties: { className: ["price-value"] },
-                hChildren: [{ type: "text", value: `${sym}${attrs.value}` }],
-              },
-            },
-          ];
-          d.data = {
-            hName: "div",
-            hProperties: { className: ["price"] },
-          };
-          return;
-        }
-        case "list": {
-          const layout = attrs.layout ?? "stack";
-          d.data = {
-            hName: "div",
-            hProperties: { className: ["list", `list--${layout}`] },
-          };
-          return;
-        }
-        case "action": {
-          const variant = attrs.variant ?? "secondary";
-          const isLink = attrs.href && !attrs.onclick && !attrs.submit;
-          unwrapTextBody(d);
-          d.data = {
-            hName: isLink ? "a" : "button",
-            hProperties: {
-              className: ["action", `action--${variant}`],
-              ...(isLink ? { href: attrs.href } : { type: "button" }),
-            },
-          };
-          return;
-        }
-        default: {
-          d.data = {
-            hName: "div",
-            hProperties: { className: ["unknown-directive", `unknown--${d.name}`] },
-          };
-        }
-      }
-    });
-  };
-}
-
-// ── Pipeline stages ────────────────────────────────────────────────────
+import { SOURCE_MD, DATA_JSON, AI_PROMPT } from "./source";
+import { blockHandlers } from "./blocks";
+import { PREVIEW_TOKENS, PREVIEW_COMPONENTS } from "./preview-styles";
 
 export type PipelineResult = {
-  stage0_source: string;
-  stage1_data: unknown;
-  stage2_meta: Record<string, unknown>;
-  stage2_body: string;
-  stage3_concrete: string;
-  stage4_ast: unknown;
-  stage5_html: string;
-  stage6_fullHtml: string;
+  prompt: string;
+  source: string;
+  data: unknown;
+  meta: Record<string, unknown>;
+  body: string;
+  concrete: string;
+  ast: unknown;
+  html: string;
+  fullHtml: string;
+  rules: { handlersSource: string; tokens: string; components: string };
 };
 
 export async function runPipeline(): Promise<PipelineResult> {
@@ -209,19 +83,31 @@ ${html
 </body>
 </html>`;
 
+  // The actual block-handlers source code, shown in the Rules stage so
+  // it's clear these aren't pseudocode — this is the rule set, in full.
+  const handlersSource = fs.readFileSync(
+    path.join(process.cwd(), "lib/blocks.ts"),
+    "utf-8",
+  );
+
   return {
-    stage0_source: source,
-    stage1_data: data,
-    stage2_meta: meta as Record<string, unknown>,
-    stage2_body: body,
-    stage3_concrete: concrete,
-    stage4_ast: ast,
-    stage5_html: html,
-    stage6_fullHtml: fullHtml,
+    prompt: AI_PROMPT,
+    source,
+    data,
+    meta: meta as Record<string, unknown>,
+    body,
+    concrete,
+    ast,
+    html,
+    fullHtml,
+    rules: {
+      handlersSource,
+      tokens: PREVIEW_TOKENS,
+      components: PREVIEW_COMPONENTS,
+    },
   };
 }
 
-// Strip position info from AST for cleaner display.
 export function trimAst(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(trimAst);
   if (node && typeof node === "object") {
@@ -235,7 +121,9 @@ export function trimAst(node: unknown): unknown {
   return node;
 }
 
-// ── Stage metadata for the UI ──────────────────────────────────────────
+// ── Stage definitions ──────────────────────────────────────────────────
+
+export type StageKind = "prompt" | "code" | "preview";
 
 export type Stage = {
   number: number;
@@ -244,13 +132,12 @@ export type Stage = {
   blurb: string;
   detail: string[];
   highlight?: string;
-  /** Pre-highlighted code panels for this stage */
-  panels: Array<{
-    label?: string;
-    code: string;
-    language: string;
-  }>;
-  /** Stage 5 / 6: render the live HTML preview alongside */
+  kind: StageKind;
+  /** For 'prompt' stage */
+  promptText?: string;
+  /** For 'code' / 'preview' stages */
+  panels?: Array<{ label?: string; code: string; language: string }>;
+  /** Stage that shows the live HTML preview alongside */
   preview?: { html: string; mode: "fragment" | "full" };
 };
 
@@ -258,95 +145,127 @@ export function buildStages(r: PipelineResult): Stage[] {
   return [
     {
       number: 0,
-      title: "Source",
-      subtitle: "The markdown file as authored",
+      title: "Prompt",
+      subtitle: "Anyone — including an AI — can write this",
+      kind: "prompt",
+      promptText: r.prompt,
       blurb:
-        "Three layers stacked: YAML frontmatter, Handlebars templating, directive blocks for semantic shapes plain markdown can't carry.",
+        "The format is the contract. Any LLM can produce this dialect from natural language. No special API, no schema gymnastics — it's text. The constrained surface area is what makes the output reliable.",
       detail: [
-        "An LLM produces this format the same way it produces any markdown — no special API, no JSX, no schema gymnastics. The format itself is the contract.",
-        "Plain markdown still works: # ## - * [link](href). Directives only appear where standard markdown can't carry the meaning.",
+        "Watch the assistant produce the markdown source from a plain-English request. Everything that follows in this walkthrough is downstream of this — same source, same pipeline, same UI, every time.",
       ],
-      panels: [{ code: r.stage0_source, language: "markdown" }],
+      highlight: "AI-first by design",
     },
     {
       number: 1,
-      title: "Data",
-      subtitle: "JSON the frontmatter referenced",
+      title: "Source",
+      subtitle: "The markdown the AI produced",
+      kind: "code",
       blurb:
-        "Two products, deliberately different — Crowne Plaza has both a highlight and a packageCount; Hilton has neither. Both {{#if}} branches will fire.",
+        "Three layers stacked: YAML frontmatter, Handlebars templating, directive blocks for semantic shapes plain markdown can't carry.",
       detail: [
-        "The data: field in frontmatter could equally be a URL — the renderer just needs JSON at this point in the pipeline. The original prototype's /hotels route uses a live API call.",
+        "Plain markdown still works: # ## - * [link](href). Directives only appear where standard markdown can't carry the meaning.",
+        "Outer container directives use ::::group (4 colons) so they survive nesting around inner :::status / :::list / :::action containers (3 colons).",
       ],
-      panels: [
-        { code: JSON.stringify(r.stage1_data, null, 2), language: "json" },
-      ],
+      panels: [{ code: r.source, language: "markdown" }],
     },
     {
       number: 2,
+      title: "Data",
+      subtitle: "JSON the frontmatter referenced",
+      kind: "code",
+      blurb:
+        "Two products, deliberately different — Crowne Plaza has both a highlight and a packageCount; Hilton has neither. Both {{#if}} branches will fire.",
+      detail: [
+        "The data: field could equally be a URL — the renderer just needs JSON at this point. The original prototype's /hotels route uses a live Holiday Extras API call.",
+      ],
+      panels: [{ code: JSON.stringify(r.data, null, 2), language: "json" }],
+    },
+    {
+      number: 3,
       title: "Frontmatter",
       subtitle: "After gray-matter splits meta from body",
+      kind: "code",
       blurb:
         "The first transformation. The --- fences are recognised; frontmatter becomes a typed object, the body is everything below. Nothing else has been parsed.",
       detail: [
         "Frontmatter resolution is what tells the pipeline which template, which data, and which title to use. Everything else is still raw text.",
       ],
       panels: [
-        { label: "meta", code: JSON.stringify(r.stage2_meta, null, 2), language: "json" },
-        { label: "body (raw)", code: r.stage2_body, language: "markdown" },
+        { label: "meta", code: JSON.stringify(r.meta, null, 2), language: "json" },
+        { label: "body (raw)", code: r.body, language: "markdown" },
       ],
-    },
-    {
-      number: 3,
-      title: "Concrete",
-      subtitle: "After Handlebars expands every {{ }}",
-      blurb:
-        "Templating ran. {{#each products}} produced two card blocks. Hilton's :::status block is gone — {{#if highlight}} was false. Crowne's CTA reads 'Show Packages (4)'; Hilton's reads 'Choose'.",
-      detail: [
-        "Notably this is still valid markdown text — you could commit this output and skip Handlebars at request time if your content is fully static. But it's also the last point at which the document is just a string.",
-      ],
-      highlight: "Templating done. Still text — no structure yet.",
-      panels: [{ code: r.stage3_concrete, language: "markdown" }],
     },
     {
       number: 4,
+      title: "Concrete",
+      subtitle: "After Handlebars expands every {{ }}",
+      kind: "code",
+      blurb:
+        "Templating ran. {{#each products}} produced two card blocks. Hilton's :::status block is gone — {{#if highlight}} was false. Crowne's CTA reads 'Show Packages (4)'; Hilton's reads 'Choose'.",
+      detail: [
+        "This is still valid markdown text — you could commit this output and skip Handlebars at request time if your content is fully static. But it's also the last point at which the document is just a string.",
+      ],
+      highlight: "Templating done. Still text.",
+      panels: [{ code: r.concrete, language: "markdown" }],
+    },
+    {
+      number: 5,
       title: "AST",
       subtitle: "After remark + remark-directive parse",
+      kind: "code",
       blurb:
         "Strings became a tree. Standard markdown nodes (heading, paragraph, list) sit alongside containerDirective and leafDirective nodes. Each directive carries name and attributes.",
       detail: [
         "This is the structured schema the proposal describes — the layer between markdown (input) and rendered UI (output). Iterate it differently and you get JSON for iOS, table-based HTML for email, paged HTML for print.",
         "Position info (line/column) has been stripped here for readability — in real ASTs each node carries source location, which is what makes validation errors line-precise.",
       ],
-      highlight: "The boundary. Text became structure.",
-      panels: [
-        { code: JSON.stringify(trimAst(r.stage4_ast), null, 2), language: "json" },
-      ],
-    },
-    {
-      number: 5,
-      title: "HTML",
-      subtitle: "After block handlers walk the tree",
-      blurb:
-        "Each directive node was transformed by its handler. group{role=card} → <article class=\"group group--card\">. price got currency-symbol formatting. action with an href emitted <a> rather than <button>.",
-      detail: [
-        "The handlers are the entire rendering rule set for the directive layer. Roughly ten small functions, five lines each. New primitive = new handler. New pattern = no new code.",
-        "Swap these handlers with iOS or email versions and the same Stage 4 tree drives every target.",
-      ],
-      highlight: "The only target-specific step.",
-      panels: [{ code: r.stage5_html, language: "html" }],
-      preview: { html: r.stage5_html, mode: "fragment" },
+      highlight: "The boundary. Text → structure.",
+      panels: [{ code: JSON.stringify(trimAst(r.ast), null, 2), language: "json" }],
     },
     {
       number: 6,
+      title: "Rules",
+      subtitle: "Block handlers + design tokens + component CSS",
+      kind: "code",
+      blurb:
+        "The visible rule set. Three artifacts together turn the AST into rendered UI: handlers (which directive becomes which element + class), tokens (the colour / type / spacing primitives), and component CSS (how each class consumes those tokens). Every card on every page flows through these.",
+      detail: [
+        "There is no 'LoungeCard' or 'HotelCard' component anywhere. There is one .group--card style. Both rendered cards in the preview consume it identically — same border-radius, same shadow, same hover behaviour. Consistency comes from this layer being the only place visual decisions are made.",
+        "Replace the handlers with a JSON-emitter and you get an iOS manifest. Replace them with a table-emitter and you get email HTML. The tokens stay; the components specialise.",
+      ],
+      highlight: "Where every pixel comes from",
+      panels: [
+        { label: "blocks.ts — handlers", code: r.rules.handlersSource, language: "typescript" },
+        { label: "preview-tokens.css", code: r.rules.tokens, language: "css" },
+        { label: "preview-components.css", code: r.rules.components, language: "css" },
+      ],
+    },
+    {
+      number: 7,
+      title: "HTML",
+      subtitle: "What the rules produce",
+      kind: "preview",
+      blurb:
+        "Each directive node was transformed by its handler. group{role=card} → <article class=\"group group--card\">. price got currency-symbol formatting. action with an href emitted <a> rather than <button>. The classes you see here are exactly the classes the design system styles.",
+      detail: [
+        "Both cards consume the same .group--card style. The :::status pill on Crowne is .status--positive — same class that any other 'positive' message anywhere would use. Different content, identical rules.",
+      ],
+      panels: [{ code: r.html, language: "html" }],
+      preview: { html: r.html, mode: "fragment" },
+    },
+    {
+      number: 8,
       title: "Page",
       subtitle: "Shell wraps the body — final served HTML",
+      kind: "preview",
       blurb:
-        "The shell template is the only template left in the new architecture. It wraps Stage 5 in <html>, head metadata, the site header. Per-page templates are gone.",
+        "The shell template is the only template left in the new architecture. It wraps Stage 7 in <html>, head metadata, and the site header. Per-page templates are gone.",
       detail: [
         "Adding a new page in production becomes writing one markdown file. No new template, no new route handler, no new code.",
       ],
-      panels: [{ code: r.stage6_fullHtml, language: "html" }],
-      preview: { html: r.stage5_html, mode: "full" },
+      panels: [{ code: r.fullHtml, language: "html" }],
+      preview: { html: r.html, mode: "full" },
     },
   ];
 }
