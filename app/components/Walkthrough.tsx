@@ -7,8 +7,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { Glass } from "./Glass";
 import { Stepper } from "./Stepper";
 import { CodePanel } from "./CodePanel";
-import { Preview } from "./Preview";
-import { StageVisual, type StageVisual as StageVisualKind } from "./StageVisual";
+import { MorphCanvas } from "./MorphCanvas";
+import { type StageVisual as StageVisualKind } from "./StageVisual";
 
 export type StageView = {
   number: number;
@@ -112,35 +112,13 @@ export function Walkthrough({ stages }: { stages: StageView[] }) {
             </motion.div>
           </AnimatePresence>
 
-          {/* Visual representation of the transformation — full width */}
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={`visual-${stage.number}`}
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-              className="mb-6"
-            >
-              <StageVisual visual={stage.visual} />
-            </motion.div>
-          </AnimatePresence>
-
-          {/* Live HTML preview at full width on Stage 6 / 7 */}
-          {stage.preview && (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={`preview-${stage.number}`}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                className="mb-6"
-              >
-                <Preview html={stage.preview.html} mode={stage.preview.mode} />
-              </motion.div>
-            </AnimatePresence>
-          )}
+          {/* The morph canvas — same hotel content rendered in 7 visual
+              states, one per stage. Motion's layout animations carry
+              each element from one state to the next: from raw markdown
+              text, through AST boxes, to the fully rendered card. */}
+          <div className="mb-6">
+            <MorphCanvas stage={stage.number} />
+          </div>
 
           {/* Body grid: code on left, explanation + nav on right */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
