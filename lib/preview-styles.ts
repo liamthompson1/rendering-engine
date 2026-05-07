@@ -1,17 +1,16 @@
-// The design system for the rendered preview. Two parts:
-//   - TOKENS: design primitives (colour, type scale, spacing, shadows, radii)
-//   - COMPONENTS: how each block-handler-emitted class consumes those tokens
+// The design system for the rendered preview.
 //
-// These strings are both:
-//   1. Injected into the DOM by <PreviewStyles /> so the Preview component
-//      actually renders with them
-//   2. Displayed in the "Rules" stage of the walkthrough so the viewer
-//      can see *exactly* where every rendered pixel comes from
-// Same string in both places — single source of truth.
+// These class names are the OUTPUT of the rules engine — they're not
+// authoring primitives. Authors write pure markdown; the renderer infers
+// these classes from structural shape; the CSS below paints them.
+//
+// Two parts: design tokens (the primitives every visual decision composes
+// from) and the component rules (how each rule-emitted class consumes
+// those tokens). The strings here are both injected into the page via
+// <PreviewStyles> and shown verbatim in the Rules stage. Single source
+// of truth.
 
-export const PREVIEW_TOKENS = `/* Design tokens — every visual decision lives here.
-   Change a token, every card / pill / button / heading on every page
-   that uses these styles updates with it. */
+export const PREVIEW_TOKENS = `/* Design tokens — every visual decision composes from these. */
 .preview-content,
 .preview-shell-header {
   /* Colour */
@@ -64,7 +63,9 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   border-radius: 0 0 1rem 1rem;
 }
 
-/* Layout: cards auto-fit into a grid on wide screens; title spans columns */
+/* Layout: cards auto-fit into a grid; page title spans columns.
+   These rules apply to the rule-emitted .card and .page-title — the
+   author wrote h1 and h2 + body content and got this layout. */
 .preview-content {
   display: grid;
   grid-template-columns: 1fr;
@@ -76,13 +77,13 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
     column-gap: 1.25rem;
     row-gap: 1.5rem;
   }
-  .preview-content > h1 {
+  .preview-content > .page-title {
     grid-column: 1 / -1;
   }
 }
 
-/* Page heading */
-.preview-content > h1 {
+/* Page heading (rule: h1 at top of doc) */
+.preview-content > .page-title {
   font-size: var(--type-h1);
   font-weight: 700;
   letter-spacing: -0.03em;
@@ -91,8 +92,8 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   line-height: 1.05;
 }
 
-/* ── group{role=card} → article.group--card ───────────────────────── */
-.preview-content .group--card {
+/* ── Card (rule: h2 + content grouped) ─────────────────────────────── */
+.preview-content .card {
   display: flex;
   flex-direction: column;
   background: var(--surface-card);
@@ -104,13 +105,19 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   transition: transform 0.25s cubic-bezier(0.22,1,0.36,1),
               box-shadow 0.25s cubic-bezier(0.22,1,0.36,1);
 }
-.preview-content .group--card:hover {
+.preview-content .card:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-card-hover);
 }
 
-/* image directive emits <img loading="lazy"> */
-.preview-content .group--card > img {
+/* Hero image (rule: paragraph holding ONLY an image, first occurrence) */
+.preview-content .card-hero-wrap {
+  display: block;
+  margin: 0;
+  padding: 0;
+  line-height: 0;
+}
+.preview-content .card-hero {
   display: block;
   width: 100%;
   height: 220px;
@@ -118,31 +125,22 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   background: linear-gradient(135deg, #ddd6fe 0%, #fbcfe8 50%, #99f6e4 100%);
 }
 
-/* Inset everything except the image */
-.preview-content .group--card > h2,
-.preview-content .group--card > .status,
-.preview-content .group--card > .price,
-.preview-content .group--card > p,
-.preview-content .group--card > .list,
-.preview-content .group--card > .action {
+/* Card body — every direct child of .card except the hero gets inset */
+.preview-content .card > .card-title,
+.preview-content .card > .status,
+.preview-content .card > .price,
+.preview-content .card > .badges,
+.preview-content .card > .card-prose,
+.preview-content .card > .cta-wrap {
   margin-left: var(--space-card-pad);
   margin-right: var(--space-card-pad);
 }
-.preview-content .group--card > h2 {
-  margin-top: 1.125rem;
-  margin-bottom: var(--space-stack-sm);
-}
-.preview-content .group--card > .status {
-  margin-top: var(--space-stack-sm);
-  margin-bottom: var(--space-stack);
-}
-.preview-content .group--card > .action {
-  margin-top: auto;
-  margin-bottom: var(--space-card-pad);
-  align-self: flex-start;
-}
+.preview-content .card > .card-title    { margin-top: 1.125rem; margin-bottom: var(--space-stack-sm); }
+.preview-content .card > .status        { margin-top: var(--space-stack-sm); margin-bottom: var(--space-stack); }
+.preview-content .card > .cta-wrap      { margin-top: auto; margin-bottom: var(--space-card-pad); }
 
-.preview-content .group--card h2 {
+/* Title (rule: h2 inside grouped card) */
+.preview-content .card-title {
   font-size: var(--type-h2);
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -150,7 +148,7 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   line-height: 1.25;
 }
 
-/* ── status{tone} → div.status--{tone} ────────────────────────────── */
+/* Status pill (rule: blockquote in a listing card) */
 .preview-content .status {
   display: inline-flex;
   align-items: center;
@@ -160,6 +158,7 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.01em;
+  align-self: flex-start;
 }
 .preview-content .status::before {
   content: "";
@@ -169,40 +168,41 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   border-radius: 50%;
   background: currentColor;
 }
-.preview-content .status--positive { background: var(--hx-green-bg);  color: var(--hx-green); }
-.preview-content .status--warning  { background: var(--hx-amber-bg);  color: var(--hx-amber); }
-.preview-content .status--info     { background: rgba(124,58,237,0.10); color: #6d28d9; }
+.preview-content .status--positive { background: var(--hx-green-bg); color: var(--hx-green); }
+.preview-content .status--warning  { background: var(--hx-amber-bg); color: var(--hx-amber); }
 
-/* ── price{value,currency,label} → div.price ──────────────────────── */
+/* Price (rule: paragraph containing only **…£…**) */
 .preview-content .price {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
   margin: 0 0 0.625rem;
-  flex-wrap: wrap;
 }
-.preview-content .price-label { font-size: var(--type-meta); color: var(--ink-4); font-weight: 500; }
-.preview-content .price-value { font-size: 1.25rem; font-weight: 700; color: var(--hx-purple); letter-spacing: -0.015em; }
+.preview-content .price-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--hx-purple);
+  letter-spacing: -0.015em;
+}
 
-/* Card paragraphs (meta line, description) */
-.preview-content .group--card p {
+/* Card prose (rule: any paragraph that wasn't a hero/price/cta) */
+.preview-content .card-prose {
   margin: 0 0 var(--space-stack);
   color: var(--ink-3);
   font-size: var(--type-body);
   line-height: 1.5;
 }
 
-/* ── list{layout} → div.list--{layout} ────────────────────────────── */
-.preview-content .list--inline { margin: 0.5rem 0 0.875rem; padding: 0; }
-.preview-content .list--inline ul {
+/* Badges (rule: bullet list inside a card — natural <ul> kept) */
+.preview-content .badges {
   display: flex;
   flex-wrap: wrap;
   gap: 0.375rem;
   list-style: none;
   padding: 0;
-  margin: 0;
+  margin: 0.5rem 0 0.875rem;
 }
-.preview-content .list--inline li {
+.preview-content .badges li {
   list-style: none;
   padding: 0.25rem 0.625rem;
   border-radius: var(--radius-tile);
@@ -214,8 +214,12 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   letter-spacing: 0.01em;
 }
 
-/* ── action{variant} → a.action--{variant} (or button) ────────────── */
-.preview-content .action {
+/* CTA (rule: trailing link, alone in paragraph) */
+.preview-content .cta-wrap {
+  display: block;
+  margin: 0;
+}
+.preview-content .cta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -229,23 +233,19 @@ export const PREVIEW_COMPONENTS = `/* The preview frame itself */
   transition: transform 0.12s ease, box-shadow 0.12s ease;
   cursor: pointer;
   border: 0;
+  align-self: flex-start;
 }
-.preview-content .action--primary {
+.preview-content .cta--primary {
   background: linear-gradient(135deg, var(--hx-purple) 0%, var(--hx-purple-light) 100%);
   color: #fff;
   box-shadow: var(--shadow-action);
 }
-.preview-content .action--primary:hover {
+.preview-content .cta--primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 8px 24px -6px rgba(91,42,134,0.6);
 }
-.preview-content .action--secondary {
-  background: #fafafa;
-  color: var(--ink-2);
-  border: 1px solid var(--line);
-}
 
-/* Shell mock for Stage "Page" */
+/* Shell mock for Stage Page */
 .preview-shell-header {
   display: flex;
   align-items: center;

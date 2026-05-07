@@ -1,54 +1,42 @@
-// The hotels.md source — Stage 0 of the pipeline.
-// Uses remark-directive syntax:
-//   ::name{attrs}              — leaf directive (no body)
-//   :::name{attrs} … :::       — container directive (with body)
+// The hotels.md source — pure GFM markdown.
+// No :::directives. No ::leaf-directives. No special syntax.
+// Just headings, paragraphs, lists, blockquotes, images, links — exactly
+// what an LLM produces if you ask it to write a hotel listing.
+//
+// The shape of the rendered UI is inferred from STRUCTURE, not from named
+// blocks the author had to know about. Frontmatter tells the renderer
+// "this is a listing page" — that's the only configuration.
 export const SOURCE_MD = `---
 title: Hotels at Manchester Airport
+template: listing
 data: data/hotels.json
 ---
 
 # Hotels at Manchester Airport
 
 {{#each products}}
-::::group{role=card id="{{id}}"}
-::image{src="{{logoUrl}}" alt="{{name}}"}
-
 ## {{name}}
 
-{{#if highlight}}
-:::status{tone=positive}
-{{highlight}}
-:::
-{{/if}}
+![{{name}}]({{logoUrl}})
+
+{{#if highlight}}> {{highlight}}{{/if}}
 
 {{location}} · ★ {{stars}} · {{rating}}/10
 
-::price{value="{{price}}" currency=GBP label="Hotel packages from"}
+**Hotel packages from £{{price}}**
 
-:::list{layout=inline}
 {{#each badges}}- {{this}}
 {{/each}}
-:::
 
 {{description}}
 
-{{#if packageCount}}
-:::action{href="{{links.packages}}" variant=primary}
-Show Packages ({{packageCount}})
-:::
-{{else}}
-:::action{href="{{links.choose}}" variant=primary}
-Choose
-:::
-{{/if}}
-::::
+{{#if packageCount}}[Show Packages ({{packageCount}})]({{links.packages}}){{else}}[Choose]({{links.choose}}){{/if}}
+
 {{/each}}
 `;
 
-// data/hotels.json — Stage 1 (faked).
-// Two products, deliberately different so both {{#if}} branches fire.
-// logoUrl uses picsum.photos with a stable seed per hotel so each card
-// gets a consistent, real image without bundling assets.
+// data/hotels.json — same as before. Two products, one with highlight +
+// packageCount, one without, so both {{#if}} branches fire.
 export const DATA_JSON = {
   products: [
     {
